@@ -1,0 +1,331 @@
+## Analysing the Normal Distribution of SIMPE's model outputs (population-level data)
+
+#Libraies
+require(ggplot2)
+require(tidyverse)
+require(stargazer)
+require(jtools)
+require(huxtable)
+require(officer)
+require(flextable)
+require(sandwich)
+require(latexpdf)
+require(tinytex)
+require(purrr)
+require(gridExtra)
+#require(dotwhisker)
+require(stargazer)
+#library(hrbrthemes)
+require(hexbin)
+require(reshape2)
+require(gtable)
+require(interactions)
+require(plot3D)
+
+## Reading in the data (individual files to be merged into one) ## 
+
+files <- list.files('~/ND_Experiments/output', 
+                    pattern = ".csv", recursive = TRUE, full.names = TRUE)
+output <- do.call(rbind,
+                        lapply(files,
+                               read.csv))
+                               
+#ensuring data is in the right format
+str(output)
+
+#summary(output)
+
+#######################################
+
+######### Attitude Dynamics ###########
+
+#######################################
+
+## Data wrangling ##
+
+#Combining the 4 vars into one, changing variable types and averaging across runs
+
+output1 <- output %>%
+  gather(.,"Nat_Id_grouped", "n", Nat_ID_weighted_min,Nat_ID_weighted_med,Nat_ID_weighted_med1,Nat_ID_weighted_max)%>%
+  mutate(Nat_Id_grouped = as.factor(Nat_Id_grouped), Networks = as.factor(Networks), Social.Media = as.factor(Social.Media)) %>%
+  group_by(Networks,Social.Media, probs.rewiring,t,Nat_Id_grouped) %>%
+  summarize(mean_NatID = mean(n), mean_var = mean(Nat_ID_variance), mean_weight = mean(Nat_ID_weighted),
+            mean_homophilous = mean(Homophilous), mean_network = mean(network_ties))
+
+summary(output1)
+
+#######################################
+
+#### Nat_Id Histogram per time step ###
+
+#######################################
+
+output1 %>%
+  ggplot(aes(t,mean_NatID, group = Nat_Id_grouped, fill=Nat_Id_grouped)) + 
+  scale_fill_viridis(discrete = T, option = "D",labels = c("Q4", "Q3", "Q2", "Q1"))+ #Reds - trying alternative colors
+  geom_bar(stat = "identity", position=position_dodge()) + 
+  geom_line(aes(y= mean_h_adjusted),position = "dodge") + 
+  facet_wrap(~Networks+Social.Media) + # separating by conditions
+  labs(
+    title = "Random Dist. of National Identity Attitudes",
+    subtitle ="and homophilous clustering",
+    y= "Proportion of agents in a given quartile", 
+    x = "time steps")
+    
+## Alternative plot - lines instead of bars
+
+output %>%
+  gather(.,"Nat_Id_grouped", "n", Nat_ID_weighted_min,Nat_ID_weighted_med,Nat_ID_weighted_med1,Nat_ID_weighted_max)%>%
+  filter(probs.rewiring < 0.3) %>%
+  group_by(Networks,Social.Media,probs.rewiring, t)%>%
+  summarise(Mean=mean(Nat_ID_weighted_min), Mean1= mean(Nat_ID_weighted_med), Mean2= mean(Nat_ID_weighted_med1),Mean3= mean(Nat_ID_weighted_max))%>%
+  ggplot(aes(x = t))+
+  geom_line(aes(y =Mean, color = "Nat_Id_Q1")) + 
+  geom_line(aes(y= Mean1, color = "Nat_Id_Q2")) +
+  geom_line(aes(y= Mean2, color = "Nat_Id_Q3")) +
+  geom_line(aes(y = Mean3, color = "Nat_Id_Q4")) +
+  facet_wrap(~Networks+Social.Media) +
+  labs(
+    title = "Random Dist. of National identity Attitudes",
+    # subtitle ="when rewiring probs. <0.3",
+    x= "time steps", 
+    y = "National identity attitudes" )
+    
+    
+######################################
+
+#### Line plot of Nat_id_variance ####
+
+######################################
+
+output1 %>%
+  ggplot(aes(t,mean_var,color = probs.rewiring)) + 
+  geom_point(size = 1, alpha = 0.5)+ #,position = "jitter")  +
+  geom_line(position = "dodge") +
+  facet_wrap(~Networks+Social.Media) +
+  labs(
+    title = "Variance of Random Dist. of National Identity Attitudes",
+    y= "Variance of National Identity Attitudes", 
+    x = "time steps")
+
+## Filtering by Network and Social Media conditions
+
+ output1 %>%
+   filter(Networks == "homophilous", Social.Media == "filter-bubble_OFF")%>%
+   ggplot(aes(t,mean_var, color = probs.rewiring)) + 
+   scale_color_viridis()+ #Reds
+   geom_point(size = 1, alpha = 0.5)+ #,position = "jitter")  +
+   geom_line(position = "dodge") +
+   labs(
+     title = "Variance of Random Dist. of National Identity Attitudes",
+     subtitle ="for Homophilous networks and Filter Bubble OFF",
+     y= "Variance of National Identity Attitudes", 
+     x = "time steps")
+     
+####################################
+
+#### Line plot of Nat_id_weight ####
+
+####################################
+
+output1 %>%
+  ggplot(aes(t,mean_weight, color = probs.rewiring)) + 
+  geom_point(size = 1, alpha = 0.5)+ #,position = "jitter")  +
+  geom_line(position = "dodge") +
+  facet_wrap(~Networks+Social.Media) +
+  labs(
+    title = "Weighted National Identity Attitudes (Random Dist)",
+    y= "Weighted National Identity Attitudes", 
+    x = "time steps")     
+     
+
+#######################################
+
+########## PROTEST DYNAMICS ###########
+
+#######################################
+
+## Data wranging for protest variables
+
+output2 <- output %>%
+  #freq= frequency of only-protesters clusters compared to those in silent-only clusters
+  mutate(mean_h_adjusted = Homophilous/100, freq = protest_clustering / (protest_clustering+silent_clustering))%>% 
+  group_by(t,init.protest.size,protesting.opp, Social.Media, Networks, probs.rewiring) %>%
+  summarize(mean_protesters = mean(Protester), mean_protest = mean(protest_clustering),
+            mean_silent = mean(silent_clustering), mean_var = mean(Nat_ID_variance))
+
+## 3D plot of proportion of protesting agents, initial protest size and protesting opportunities
+
+# Specifying the 3 key variables
+z <- output2$mean_protesters
+y <- output2$protesting.opp
+x <- output2$init.protest.size
+
+# Compute the linear regression (z = ax + by + d)
+fit <- lm(z ~ x + y)
+# predict values on regular xy grid
+grid.lines = 26
+x.pred <- seq(min(x), max(x), length.out = grid.lines)
+y.pred <- seq(min(y), max(y), length.out = grid.lines)
+xy <- expand.grid( x = x.pred, y = y.pred)
+z.pred <- matrix(predict(fit, newdata = xy), 
+                 nrow = grid.lines, ncol = grid.lines)
+                 
+# fitted points for droplines to surface
+fitpoints <- predict(fit)
+# scatter plot with regression plane
+
+scatter3D(x, y, z, colkey = list(length = 0.5, width = 0.5, ## this is for the legend
+                                 dist = 0.05, cex.axis = 0.8, cex.clab = 0.8),
+          pch = 18, cex = 0.8, # shape of the points and size
+          bty = "g", # controls the background
+          #colvar = output$mean_var, # coloring for variance, though it makes it harder to read
+          theta = 20, phi = 20, ticktype = "detailed", # this is for the orientation of the plot
+          xlab = "init. protest size", ylab = "protesting.opps", zlab = "protesters proportion",  
+          surf = list(x = x.pred, y = y.pred, z = z.pred,  
+                      facets = NA, fit = fitpoints), d = 2,
+          clab = c("Proportion"), adj = 0.5, font = 2,
+          main = c("Proportion of Protesters depending on initial", "protest size & protesting opportunities"))
+
+
+
+#######################################
+
+######### LINEAR REGRESSIONS ##########
+
+#######################################
+
+### Variance Nat_ID 
+
+VarLM <- lm(log(mean_var) ~ Networks + Social.Media + probs.rewiring +mean_homophilous , data = output1)
+summary(VarLM)
+
+## Visualising the regression plots
+
+par(mfrow = c(2, 2))
+plot(VarLM)
+
+## Testing for autocorrelation
+
+acf(VarLM$residuals, type = "correlation")
+lmtest::dwtest(VarLM)
+     
+## Latex summary table & exporting results to word
+
+stargazer(VarLM, title=" Variance of Random Dist. National Identity Attitudes", align=TRUE)
+
+export_summs(VarLM, scale = TRUE,to.file = "docx", file.name = "NatID_LMs_ND.docx" )
+     
+     
+### Weighted Nat_ID
+
+WeightLM <- lm(mean_weight ~ Networks + Social.Media + probs.rewiring  , data = output1)
+summary(WeightLM)
+
+## Visualising the regression plots
+
+par(mfrow = c(2, 2))
+plot(WeightLM)
+
+## Testing for autocorrelation
+
+acf(WeightLM$residuals, type = "correlation")
+lmtest::dwtest(WeightLM)
+
+## Latex summary table & exporting results to word
+
+export_summs(WeightLM, scale = TRUE,to.file = "docx", file.name = "NatIDWeight_LMs_ND.docx" )
+
+stargazer(WeightLM,
+title="OLS Weighted polarisation measure of for Random Dist. National Identity Attitudes", align=TRUE)   
+
+### Homophily 
+
+HomLM <- lm(mean_homophilous ~ Networks + Social.Media + probs.rewiring , data = output1)
+summary(HomLM)
+
+## Testing for autocorrelation
+
+acf(HomLM$residuals, type = "correlation")
+lmtest::dwtest(HomLM)
+
+## Latex summary table & exporting results to word
+
+export_summs(HomLM, scale = TRUE,to.file = "docx", file.name = "NatIDHomC_LMs_ND.docx" )
+
+stargazer(HomLM,
+title="OLS Proportion of homophilous clustering for Random Dist. National Identity Attitudes", align=TRUE)   
+     
+     
+###########################
+
+# Protester proportion
+
+ProtesterLM <- lm(mean_protesters ~ protesting.opp + init.protest.size + Social.Media + Networks + probs.rewiring, 
+data = output2)
+summary(ProtesterLM)
+
+#there's heteroskedasticity in the model - we need weighted regression
+bptest(ProtesterLM)
+wt <- 1 / lm(abs(ProtesterLM$residuals) ~ ProtesterLM$fitted.values)$fitted.values^2
+
+#perform weighted least squares regression
+wls_model <- lm(log(mean_protesters) ~ protesting.opp + init.protest.size + Social.Media + Networks + probs.rewiring, 
+data = output2, weights=wt)
+
+summary(wls_model) # not much of a difference and the QQ plot doesn't look any better - seeking alternative approaches
+#influenceIndexPlot(ProtesterLM, vars = c("Studentized","hat","Cook"))
+
+
+## Proportion of Protesting agents w/ variance of nat_id
+ProtesterLM1 <- lm(mean_protesters ~ protesting.opp + init.protest.size + Social.Media + Networks  + mean_var
+                   + probs.rewiring, data = output2)
+summary(ProtesterLM1)
+
+## Proportion of Protesting agents w/ frequency of protest-only clusters
+ProtesterLM2 <- lm(mean_protesters ~ protesting.opp + init.protest.size + Social.Media + Networks + freq 
+                   + probs.rewiring, data = output2)
+summary(ProtesterLM2)
+
+## Proportion of Protesting agents w/ variance of nat_id + frequency of protest-only clusters
+ProtesterLM3 <- lm(mean_protesters ~ protesting.opp +init.protest.size + Social.Media + Networks  + mean_var + freq
+                   + probs.rewiring, data = output2)
+summary(ProtesterLM3)
+
+## Combining 3 OLS models into one Latex table
+stargazer(ProtesterLM1,ProtesterLM2,ProtesterLM3, 
+title=" Average proportion of protesting agents starting  from a random Dist. Of National Identity Attitudes", 
+align=TRUE)
+
+# Exporting into word
+export_summs(ProtesterLM1,ProtesterLM2,ProtesterLM3, scale = TRUE,to.file = "docx", file.name = "Protest_LMs.docx" )
+
+###########################################
+
+####### INTERACTION EFFECTS MODELS ########
+
+###########################################
+
+### Variance of Nat.ID
+
+# Social Media x Networks
+
+Nat_ID_interact <- lm(mean_var ~ Social.Media * Networks + probs.rewiring, data = output1)
+
+# Plotting the interaction between these two categorical variables
+
+cat_plot(Nat_ID_interact, pred = Networks, modx = Social.Media, plot.points = TRUE, linearity.check = TRUE)
+
+
+### Proportion of Protester agents
+
+## Init.protest size x protesting.opps
+
+ProtesterLM_interaction <- lm(mean_protesters ~ protesting.opp * init.protest.size + Social.Media + Networks 
+                              + mean_var + probs.rewiring, data = output2)
+summary(ProtesterLM_interaction)
+
+# Ploting the interaction of these numeric variables
+
+interact_plot(ProtesterLM_interaction, pred = protesting.opp, modx = init.protest.size,
+              linearity.check = TRUE, main.title = "Model 2 - protest_clust_freq")
