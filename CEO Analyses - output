@@ -1,6 +1,6 @@
 ## Analysing the CEO 2011 Distribution of SIMPE's model outputs (population-level data)
 
-#Libraies
+#Libraries
 
 require(ggplot2)
 require(tidyverse)
