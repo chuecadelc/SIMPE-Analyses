@@ -1,0 +1,134 @@
+## Analysing the CEO 2011 Distribution of SIMPE's model outputs (individual-level data)
+
+# Libraries
+
+require(ggplot2)
+require(tidyverse)
+require(stargazer)
+require(jtools)
+require(huxtable)
+require(officer)
+require(flextable)
+require(sandwich)
+require(latexpdf)
+require(tinytex)
+require(purrr)
+require(gridExtra)
+#require(dotwhisker)
+require(stargazer)
+#library(hrbrthemes)
+require(hexbin)
+require(reshape2)
+require(gtable)
+require(interactions)
+library(qwraps2)
+
+
+## Reading in the data ## 
+
+attribsCEO <- read.csv("~/CEO_Experiments/attribs/AttributesCEOAll.csv",
+                        header = T, stringsAsFactors = T)
+                               
+#ensuring data is in the right format
+
+str(attribsCEO)
+
+#summary(attribsCEO)
+
+#######################################
+
+######### Attitude Dynamics ###########
+
+#######################################
+
+## Data wranggling 
+
+attribsCEO1 <- attribsCEO %>%
+  mutate(freq = prostcount1 / (prostcount0 + prostcount1))%>%
+  group_by(networks,social_media, rewiring)%>%
+  summarise(nat_id_mean = nat_id_mean,mean_protest = mean(freq)) 
+
+
+## Summary tables 
+aCEO <- summary_table(attribsCEO1)
+print(xtable(attribsCEO1, type = "latex"), file = "summary_tabCEO.tex") ## Nicer and cleaner table
+
+
+##########################################
+
+#### Linear plots for agent's nat.id  ####
+
+##########################################
+
+attribsCEO1  %>%
+  mutate(time = as.numeric(time), agents = as.numeric(agents)) %>%
+  filter(rewiring == 0) %>%
+  #group_by(time,agents, nat_id_mean, networks,social_media)%>% # in case previous grouping didn't work correctly
+  ggplot(aes(time,nat_id_mean)) + 
+  geom_line(aes(group=agents),alpha=0.04) +
+  facet_wrap(~networks+social_media) +
+  labs(
+    title = "Dynamics of CEO 2011 Dist. National Identity Attitudes",
+    subtitle ="Probs. rewiring = 0",
+    y= "National identity attitudes", 
+    x = "time steps"  )
+
+
+## protest
+
+attribsCEO1  %>%
+  filter(rewiring == 0.5) %>%
+  ggplot(aes(time,freq, group=agents)) + 
+  geom_bar(stat = "identity", position=position_dodge()) +
+  facet_wrap(~networks+social_media) +
+  labs(
+    title = "Proportion of protesting agents per step for CEO 2011 distribution ",
+    subtitle ="Probs. rewiring = 0.5",
+    y= "National identity attitudes", 
+    x = "time steps"  )
+
+###############################################
+
+############# LINEAR REGRESSIONS ##############
+
+###############################################
+
+## Data for LM models
+
+attribsCEO2 <- attribsCEO1 %>%
+  mutate(freq = prostcount1 / (prostcount0 + prostcount1))%>%
+  group_by(networks,social_media,rewiring,time, agents, init, protesting) %>%
+  summarize(mean_protest = mean(freq), nat_id = nat_id_mean)
+#summary(attribsCEO2)
+
+
+## Attitude dynamics ##
+AvgLM_CEO <- lm(nat_id ~ Networks + Social.Media + probs.rewiring + agents, data = attribsCEO2) 
+summary(AvgLM_CEO)
+plot(AvgLM)CEO)
+
+stargazer(AvgLM_CEO, title="OLS Individual-level average national identity attitudes CEO", align=TRUE)
+
+#logging the variable to avoid violating the linerarity assumption - 
+
+AvgLM_log_CEO <- lm(log(nat_id_mean) ~ networks + social_media + rewiring + agents, data = attribsCEO2) 
+summary(AvgLM_log_CEO)
+
+## Clustered St.Errors & table outputs
+
+se_info_CEO <- tibble(term = "Standard errors", "Regular", "Clustered by agents")
+modelsummary(AvgLM_CEO,
+             vcov = list("iid", function(x) vcovCL(x, cluster = ~ attribsCEO2$agents)), 
+             add_rows = se_info, output= "latex")
+
+
+## Protest dynamics ## 
+
+ProtestLM_CEO <- lm(mean_protest ~ networks + social_media + rewiring + init + protesting , data = attribsCEO2)
+summary(ProtestLM_CEO)
+
+## Clustered St.Errors & table outputs
+
+modelsummary(ProtestLM_CEO, 
+             vcov = list("iid", function(x) vcovCL(x, cluster = ~ attribsCEO2$agents)), 
+             add_rows = se_info, output= "latex")
