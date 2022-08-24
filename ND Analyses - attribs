@@ -1,0 +1,134 @@
+## Analysing the Random Distribution of SIMPE's model outputs (individual-level data)
+
+# Libraries
+
+require(ggplot2)
+require(tidyverse)
+require(stargazer)
+require(jtools)
+require(huxtable)
+require(officer)
+require(flextable)
+require(sandwich)
+require(latexpdf)
+require(tinytex)
+require(purrr)
+require(gridExtra)
+#require(dotwhisker)
+require(stargazer)
+#library(hrbrthemes)
+require(hexbin)
+require(reshape2)
+require(gtable)
+require(interactions)
+library(qwraps2)
+
+
+## Reading in the data ## 
+
+attribs <- read.csv("~/ND_Experiments/attribs/AttributesNDAll.csv",
+                        header = T, stringsAsFactors = T)
+                               
+#ensuring data is in the right format
+
+str(attribs)
+
+#summary(attribs)
+
+#######################################
+
+######### Attitude Dynamics ###########
+
+#######################################
+
+## Data wranggling 
+
+attribs1 <- attribs %>%
+  mutate(freq = prostcount1 / (prostcount0 + prostcount1))%>%
+  group_by(networks,social_media, rewiring)%>%
+  summarise(nat_id_mean = nat_id_mean,mean_protest = mean(freq)) 
+
+
+## Summary tables 
+a <- summary_table(attribs1)
+print(xtable(attribs1, type = "latex"), file = "summary_tab.tex") ## Nicer and cleaner table
+
+
+##########################################
+
+#### Linear plots for agent's nat.id  ####
+
+##########################################
+
+attribs1  %>%
+  mutate(time = as.numeric(time), agents = as.numeric(agents)) %>%
+  filter(rewiring == 0) %>%
+  #group_by(time,agents, nat_id_mean, networks,social_media)%>% # in case previous grouping didn't work correctly
+  ggplot(aes(time,nat_id_mean,group=agents)) + 
+  geom_line(alpha=0.04) +
+  facet_wrap(~networks+social_media) +
+  labs(
+    title = "Dynamics of Random Dist. National Identity Attitudes",
+    subtitle ="Probs. rewiring = 0",
+    y= "National identity attitudes", 
+    x = "time steps"  )
+
+
+## protest
+
+attribs1  %>%
+  filter(rewiring == 0.5) %>%
+  ggplot(aes(time,freq, group=agents)) + 
+  geom_bar(stat = "identity", position=position_dodge()) +
+  facet_wrap(~networks+social_media) +
+  labs(
+    title = "Proportion of protesting agents per step",
+    subtitle ="Probs. rewiring = 0.5",
+    y= "National identity attitudes", 
+    x = "time steps"  )
+
+###############################################
+
+############# LINEAR REGRESSIONS ##############
+
+###############################################
+
+## Data for LM models
+
+attribs2 <- attribs1 %>%
+  mutate(freq = prostcount1 / (prostcount0 + prostcount1))%>%
+  group_by(networks,social_media,rewiring,time, agents, init, protesting) %>%
+  summarize(mean_protest = mean(freq), nat_id = nat_id_mean)
+#summary(attribs2)
+
+
+## Attitude dynamics ##
+AvgLM <- lm(nat_id ~ Networks + Social.Media + probs.rewiring + agents, data = attribs2) 
+summary(AvgLM)
+plot(AvgLM)
+
+stargazer(AvgLM, title="OLS Individual-level average national identity attitudes", align=TRUE)
+
+#logging the variable to avoid violating the linerarity assumption - 
+AvgLM_log <- lm(log(nat_id_mean) ~ networks + social_media + rewiring + agents, data = attribs2) 
+summary(AvgLM_log)
+
+## Clustered St.Errors & table outputs
+
+se_info <- tibble(term = "Standard errors", "Regular", "Clustered by agents")
+modelsummary(AvgLM,
+             vcov = list("iid", function(x) vcovCL(x, cluster = ~ attribs2$agents)), 
+             add_rows = se_info, output= "latex")
+
+
+## Protest dynamics ## 
+
+ProtestLM <- lm(mean_protest ~ networks + social_media + rewiring + init + protesting , data = attribs2)
+summary(ProtestLM)
+
+## Clustered St.Errors & table outputs
+
+
+modelsummary(ProtestLM, 
+             vcov = list("iid", function(x) vcovCL(x, cluster = ~ attribs2$agents)), 
+             add_rows = se_info, output= "latex")
