@@ -26,9 +26,13 @@ library(qwraps2)
 
 ## Reading in the data ## 
 
-attribs <- read.csv("~/ND_Experiments/attribs/AttributesNDAll.csv",
-                        header = T, stringsAsFactors = T)
-                               
+files <- list.files('~/ND/attribs', 
+                     pattern = ".csv", recursive = TRUE, full.names = TRUE)
+
+attribs <- do.call(rbind,
+                      lapply(files,
+                             read.csv))
+                             
 #ensuring data is in the right format
 
 str(attribs)
@@ -86,6 +90,69 @@ attribs1  %>%
     subtitle ="Probs. rewiring = 0.5",
     y= "National identity attitudes", 
     x = "time steps"  )
+
+
+### Combined version ###
+
+## Calculating the quartiles ##
+
+# Labels from CEO 2011 P25 question although the distribution of Nat id is random in this version
+labels <- c("Solely Catalan","More Catalan than Spanish","Equally Spanish and Catalan","More Spanish than Catalan","Solely Spanish")
+
+## Quartiles from individual data ##
+
+attribs  %>%
+  group_by(Networks, Social.Media, probs.rewiring, t, agent) %>%
+  summarize(nat_id_mean = mean(nat_id), var = var(nat_id)) %>%
+  mutate(
+    quartile = cut(
+      -nat_id_mean,
+      breaks = c(Inf, 0.5, 0,-0.5,-Inf),
+      labels = c("Q1", "Q2", "Q3", "Q4")
+    ),
+    Networks = recode(Networks, `0` = "Random", `1` = "Homophilous"),
+    Social.Media = recode(Social.Media, `0` = "Filter Bubble Off", `1` = "Filter Bubble On")
+  ) %>%
+  filter(probs.rewiring == 0) %>%
+  ggplot(aes(t, group = quartile, fill = quartile)) +
+  geom_bar(stat = "count", position = position_dodge2(preserve = "single")) +
+  scale_fill_viridis(discrete = T,
+                     option = "D",
+                     labels = labels) +
+  facet_wrap( ~ Networks + Social.Media) +
+  labs(
+    title = "Random Dist. of National Identities ",
+    subtitle = "where rewiring probs = 0",
+    y = "Proportion of agents in a given quartile",
+    x = "time steps"
+  ) +
+  theme(
+    text = element_text(size = 20),
+    legend.key.size = unit(1, 'cm'),
+    legend.text = element_text(size = 12),
+    legend.position = "bottom"
+  ) +
+  guides(color = guide_legend(nrow = 2, byrow = TRUE))
+
+## Individual changes of national identities ## 
+
+attribs %>%
+    group_by(Networks,Social.Media,probs.rewiring,t,agent) %>%
+    summarize(nat_id_mean = mean(nat_id), var= var(nat_id))%>%
+    mutate(
+    Networks = recode(Networks, `0` = "Random", `1` = "Homophilous"),
+    Social.Media = recode(Social.Media, `0` = "Filter Bubble Off", `1` = "Filter Bubble On")
+    ) %>%
+    filter(probs.rewiring == 0) %>%
+    ggplot(aes(t,nat_id_mean, group=agent)) + 
+    geom_line(alpha=0.04) +
+    facet_wrap(~Networks+Social.Media) +
+    labs(
+      title = "Dynamics of Random Dist. National Identities",
+      subtitle ="where rewiring probs = 0",
+      y= "National identities", 
+      x = "time steps"  )
+
 
 ###############################################
 
